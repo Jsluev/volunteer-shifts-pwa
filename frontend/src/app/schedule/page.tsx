@@ -26,7 +26,7 @@ export default function SchedulePage() {
   const loadShifts = async () => {
     try {
       const data = await apiFetch("/api/v1/shifts/?status=published");
-      setShifts(data);
+      setShifts(data.items || data);
     } catch (err) {
       console.error(err);
     } finally {

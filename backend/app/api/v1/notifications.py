@@ -12,18 +12,27 @@ from app.services.audit import log_action
 router = APIRouter(prefix="/notifications", tags=["notifications"])
 
 
-@router.get("/", response_model=list[NotificationResponse])
+@router.get("/")
 async def list_notifications(
     unread_only: bool = False,
+    offset: int = 0,
+    limit: int = 50,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
     query = select(Notification).where(Notification.user_id == current_user.id)
+    count_query = select(func.count()).select_from(Notification).where(Notification.user_id == current_user.id)
+
     if unread_only:
         query = query.where(Notification.status == "pending")
-    query = query.order_by(Notification.created_at.desc()).limit(100)
+        count_query = count_query.where(Notification.status == "pending")
+
+    total = (await db.execute(count_query)).scalar()
+    query = query.order_by(Notification.created_at.desc()).offset(offset).limit(limit)
     result = await db.execute(query)
-    return result.scalars().all()
+    items = result.scalars().all()
+
+    return {"items": items, "total": total, "offset": offset, "limit": limit}
 
 
 @router.get("/unread-count")

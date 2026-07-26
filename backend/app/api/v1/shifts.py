@@ -20,31 +20,42 @@ def require_coordinator(user: User):
         raise HTTPException(status_code=403, detail="Coordinator or controller role required")
 
 
-@router.get("/", response_model=list[ShiftResponse])
+@router.get("/")
 async def list_shifts(
     department_id: int | None = None,
     status: str = "published",
     start_date: str | None = None,
     end_date: str | None = None,
+    offset: int = 0,
+    limit: int = 50,
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    cache_key = f"shifts:{current_user.tenant_id}:{status}:{department_id}:{start_date}:{end_date}"
+    cache_key = f"shifts:{current_user.tenant_id}:{status}:{department_id}:{start_date}:{end_date}:{offset}:{limit}"
     cached = await cache_get(cache_key)
     if cached:
         return json.loads(cached)
 
     query = select(Shift).where(Shift.tenant_id == current_user.tenant_id)
+    count_query = select(func.count()).select_from(Shift).where(Shift.tenant_id == current_user.tenant_id)
+
     if status:
         query = query.where(Shift.status == status)
+        count_query = count_query.where(Shift.status == status)
     if department_id:
         query = query.where(Shift.department_id == department_id)
+        count_query = count_query.where(Shift.department_id == department_id)
     if start_date:
         query = query.where(Shift.start_time >= start_date)
+        count_query = count_query.where(Shift.start_time >= start_date)
     if end_date:
         query = query.where(Shift.end_time <= end_date)
-    query = query.order_by(Shift.start_time)
+        count_query = count_query.where(Shift.end_time <= end_date)
 
+    total_result = await db.execute(count_query)
+    total = total_result.scalar()
+
+    query = query.order_by(Shift.start_time).offset(offset).limit(limit)
     result = await db.execute(query)
     shifts = result.scalars().all()
 
@@ -60,8 +71,9 @@ async def list_shifts(
         shift_dict.occupied_slots = occupied.scalar()
         response.append(shift_dict)
 
-    await cache_set(cache_key, json.dumps([s.model_dump(mode="json") for s in response]), ttl=60)
-    return response
+    payload = {"items": [s.model_dump(mode="json") for s in response], "total": total, "offset": offset, "limit": limit}
+    await cache_set(cache_key, json.dumps(payload), ttl=60)
+    return {"items": response, "total": total, "offset": offset, "limit": limit}
 
 
 @router.post("/", response_model=ShiftResponse, status_code=201)

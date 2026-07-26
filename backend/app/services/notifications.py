@@ -5,6 +5,7 @@ from app.models.shift import Shift
 from app.models.registration import ShiftRegistration
 from app.models.user import User
 from app.models.notification import Notification
+from app.services.email import send_email
 
 
 async def create_notification(
@@ -27,6 +28,16 @@ async def create_notification(
     )
     db.add(notif)
     await db.flush()
+
+    if channel == "email":
+        user = await db.execute(select(User).where(User.id == user_id))
+        user_obj = user.scalar_one_or_none()
+        if user_obj and user_obj.email:
+            sent = send_email(user_obj.email, subject or "Уведомление", body)
+            if sent:
+                notif.status = "sent"
+                notif.sent_at = datetime.utcnow()
+
     return notif
 
 

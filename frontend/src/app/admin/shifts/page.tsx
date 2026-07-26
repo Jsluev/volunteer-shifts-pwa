@@ -42,7 +42,7 @@ export default function AdminShiftsPage() {
         apiFetch("/api/v1/shifts/"),
         apiFetch("/api/v1/departments/"),
       ]);
-      setShifts(s);
+      setShifts(s.items || s);
       setDepartments(d);
     } catch (err) {
       console.error(err);
