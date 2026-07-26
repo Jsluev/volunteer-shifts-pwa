@@ -1,4 +1,7 @@
+import csv
+import io
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, case, extract
 from datetime import datetime, timedelta
@@ -255,3 +258,150 @@ async def audit_log(
         "page": page,
         "page_size": page_size,
     }
+
+
+@router.get("/export/fill-rate")
+async def export_fill_rate_csv(
+    start_date: str | None = None,
+    end_date: str | None = None,
+    department_id: int | None = None,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_coordinator(current_user)
+
+    query = select(Shift).where(Shift.tenant_id == current_user.tenant_id, Shift.status == "published")
+    if start_date:
+        query = query.where(Shift.start_time >= start_date)
+    if end_date:
+        query = query.where(Shift.end_time <= end_date)
+    if department_id:
+        query = query.where(Shift.department_id == department_id)
+
+    result = await db.execute(query)
+    shifts = result.scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Shift ID", "Department", "Start", "End", "Total Slots", "Filled", "Empty", "Fill Rate %"])
+
+    for shift in shifts:
+        occupied = await db.execute(
+            select(func.count()).select_from(ShiftRegistration).where(
+                ShiftRegistration.shift_id == shift.id,
+                ShiftRegistration.status.in_(["approved", "attendance_confirmed"]),
+            )
+        )
+        occ = occupied.scalar()
+        rate = round(occ / shift.total_slots * 100, 1) if shift.total_slots > 0 else 0
+        writer.writerow([
+            shift.id, shift.department_id,
+            shift.start_time.isoformat(), shift.end_time.isoformat(),
+            shift.total_slots, occ, shift.total_slots - occ, rate,
+        ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=fill_rate_{datetime.utcnow().strftime('%Y%m%d')}.csv"},
+    )
+
+
+@router.get("/export/unfilled-slots")
+async def export_unfilled_csv(
+    department_id: int | None = None,
+    days_ahead: int = 7,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_coordinator(current_user)
+
+    now = datetime.utcnow()
+    future = now + timedelta(days=days_ahead)
+
+    query = select(Shift).where(
+        Shift.tenant_id == current_user.tenant_id,
+        Shift.status == "published",
+        Shift.start_time >= now,
+        Shift.start_time <= future,
+    )
+    if department_id:
+        query = query.where(Shift.department_id == department_id)
+
+    result = await db.execute(query)
+    shifts = result.scalars().all()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Shift ID", "Department", "Start", "End", "Total", "Occupied", "Empty"])
+
+    for shift in shifts:
+        occupied = await db.execute(
+            select(func.count()).select_from(ShiftRegistration).where(
+                ShiftRegistration.shift_id == shift.id,
+                ShiftRegistration.status.in_(["approved", "attendance_confirmed"]),
+            )
+        )
+        occ = occupied.scalar()
+        if occ < shift.total_slots:
+            writer.writerow([
+                shift.id, shift.department_id,
+                shift.start_time.isoformat(), shift.end_time.isoformat(),
+                shift.total_slots, occ, shift.total_slots - occ,
+            ])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=unfilled_slots_{datetime.utcnow().strftime('%Y%m%d')}.csv"},
+    )
+
+
+@router.get("/export/volunteer-classification")
+async def export_classification_csv(
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    require_coordinator(current_user)
+
+    now = datetime.utcnow()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+    volunteers = await db.execute(
+        select(User).where(User.tenant_id == current_user.tenant_id, User.role == "volunteer", User.is_active == True)
+    )
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["User ID", "Name", "Email", "Shifts This Month", "Classification"])
+
+    for vol in volunteers.scalars().all():
+        month_regs = await db.execute(
+            select(func.count()).select_from(ShiftRegistration).where(
+                ShiftRegistration.user_id == vol.id,
+                ShiftRegistration.status.in_(["approved", "attendance_confirmed"]),
+                ShiftRegistration.created_at >= month_start,
+            )
+        )
+        count = month_regs.scalar()
+
+        if count >= 3:
+            tier = "Active (3+)"
+        elif count >= 1:
+            tier = "Moderate (1-2)"
+        else:
+            total_regs = await db.execute(
+                select(func.count()).select_from(ShiftRegistration).where(ShiftRegistration.user_id == vol.id)
+            )
+            tier = "Registered" if total_regs.scalar() > 0 else "Never came"
+
+        writer.writerow([vol.id, vol.full_name, vol.email, count, tier])
+
+    output.seek(0)
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename=classification_{datetime.utcnow().strftime('%Y%m%d')}.csv"},
+    )

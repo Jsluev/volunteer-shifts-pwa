@@ -1,5 +1,6 @@
 import asyncio
 import time
+import uuid
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
@@ -10,7 +11,10 @@ from app.models import Tenant, User, Department, Shift, ShiftRegistration, Dialo
 from app.core.database import AsyncSessionLocal
 from app.core.security import hash_password
 from app.core.redis import rate_limit
+from app.core.logging import setup_logging, get_logger, request_id_var
 from app.services.notifications import send_shift_reminders
+
+logger = get_logger("app")
 
 reminder_task: asyncio.Task | None = None
 
@@ -72,6 +76,19 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    req_id = request.headers.get("X-Request-ID", str(uuid.uuid4())[:8])
+    request_id_var.set(req_id)
+    start = time.time()
+    response = await call_next(request)
+    duration = round((time.time() - start) * 1000)
+    response.headers["X-Request-ID"] = req_id
+    if request.url.path.startswith("/api/"):
+        logger.info(f"{request.method} {request.url.path} -> {response.status_code} ({duration}ms)")
+    return response
 
 
 @app.middleware("http")

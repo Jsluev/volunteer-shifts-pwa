@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import ServiceWorker from "./sw-register";
+import { Toaster } from "@/components/Toast";
 
 export const metadata: Metadata = {
   title: "Volunteer Shifts",
@@ -19,6 +20,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="ru">
       <body>
         <ServiceWorker />
+        <Toaster />
         {children}
       </body>
     </html>
