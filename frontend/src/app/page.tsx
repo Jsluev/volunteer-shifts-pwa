@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { storeAuth } from "@/lib/api";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
@@ -19,29 +20,44 @@ export default function LoginPage() {
     setError("");
 
     try {
-      const endpoint = isRegister ? "/api/v1/auth/register" : "/api/v1/auth/login";
-      const body = isRegister
-        ? { email, password, full_name: fullName, role, phone: "" }
-        : { email, password };
-
-      const res = await fetch(`${API}${endpoint}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-
-      if (!res.ok) {
-        const data = await res.json();
-        throw new Error(data.detail || "Error");
-      }
-
-      if (!isRegister) {
-        const data = await res.json();
-        localStorage.setItem("token", data.access_token);
-        window.location.href = "/schedule";
-      } else {
+      if (isRegister) {
+        const res = await fetch(`${API}/api/v1/auth/register`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password, full_name: fullName, role, phone: "" }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || "Error");
+        }
         setIsRegister(false);
         setError("");
+      } else {
+        const res = await fetch(`${API}/api/v1/auth/login`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          throw new Error(data.detail || "Error");
+        }
+        const loginData = await res.json();
+
+        const meRes = await fetch(`${API}/api/v1/auth/me`, {
+          headers: { Authorization: `Bearer ${loginData.access_token}` },
+        });
+        if (!meRes.ok) throw new Error("Failed to load user");
+        const user = await meRes.json();
+
+        storeAuth(loginData.access_token, loginData.refresh_token, {
+          id: user.id,
+          email: user.email,
+          role: user.role,
+          full_name: user.full_name,
+          tenant_id: user.tenant_id,
+        });
+        window.location.href = "/schedule";
       }
     } catch (err: any) {
       setError(err.message);

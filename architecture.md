@@ -137,11 +137,48 @@ projectV/
 
 ---
 
-## Что ещё не реализовано (но архитектурно готово)
+## Реализованные фичи (обновлено)
+
+### Refresh Token на фронтенде
+
+- `apiFetch()` автоматически пробует обновить access token через `/auth/refresh` при получении 401
+- В localStorage хранятся `token`, `refresh_token` и `user` (JSON с id, email, role)
+- При неудачном refresh — очистка и редирект на `/`
+- Дедупликация одновременных refresh-запросов через `refreshPromise`
+
+### Frontend Role Guards
+
+- `AdminGuard` компонент — проверяет роль пользователя, редиректит на `/schedule` если нет прав
+- Обёрнуты все 3 admin-страницы: shifts, moderation, analytics
+- `Sidebar` показывает раздел "Управление" только для coordinator/controller/admin ролей
+- UserInfo отображается в Sidebar (ФИО, email, роль)
+
+### WebSocket чат
+
+- `ConnectionManager` — менеджер соединений по dialog_id
+- Эндпоинт `WS /api/v1/chat/ws/{dialog_id}?token=<jwt>` — проверяет JWT и participant_ids
+- Сообщения через WebSocket сохраняются в БД и broadкастятся всем участникам диалога
+- REST эндпоинт POST `/messages` тоже broadкастит через WebSocket
+- Фронтенд: auto-scroll, индикатор онлайн/оффлайн, оптимистичная отправка через WS
+
+### Redis
+
+- `core/redis.py` — async-клиент через `redis.asyncio`
+- Кэширование: список смен (TTL 60с) с инвалидацией при мутациях
+- Rate limiting: 120 запросов/мин на auth-эндпоинты (по IP)
+- Вспомогательные функции: `cache_get`, `cache_set`, `cache_delete`, `rate_limit`
+
+### Cron напоминания
+
+- Background task через `asyncio.create_task` в lifespan
+- Запускается каждые 5 минут, вызывает `send_shift_reminders()`
+- Напоминания: за 2 дня, через 15 часов, за 1.5 часа до смены
+- Дедупликация: проверяет существующие уведомления перед созданием
+- Lifespan context manager вместо deprecated `@app.on_event`
+
+---
+
+## Что ещё не реализовано
 
 - **Email/Push/SMS доставка** — каналы определены в модели, но нет воркеров
-- **Redis** — подключён, но не используется (кэширование, rate limiting, WebSocket pub/sub)
-- **WebSocket чат** — фронтенд опрашивает, нужно перейти на реалтайм
-- **Cron для напоминаний** — `trigger-reminders` эндпоинт есть, но нет планировщика
-- **Frontend role guards** — роли проверяются на бэкенде, фронтенд пока не скрывает UI по ролям
-- **Refresh token на фронтенде** — при 401 просто выкидывает из системы
+- **WebSocket публикации для нескольких тенантов** — пока WebSocket не隔离 по tenant_id

@@ -1,8 +1,10 @@
+import json
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.core.database import get_db
 from app.core.security import get_current_user
+from app.core.redis import cache_get, cache_set, cache_delete
 from app.models.user import User
 from app.models.shift import Shift
 from app.models.registration import ShiftRegistration
@@ -27,6 +29,11 @@ async def list_shifts(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    cache_key = f"shifts:{current_user.tenant_id}:{status}:{department_id}:{start_date}:{end_date}"
+    cached = await cache_get(cache_key)
+    if cached:
+        return json.loads(cached)
+
     query = select(Shift).where(Shift.tenant_id == current_user.tenant_id)
     if status:
         query = query.where(Shift.status == status)
@@ -52,6 +59,8 @@ async def list_shifts(
         shift_dict = ShiftResponse.model_validate(shift)
         shift_dict.occupied_slots = occupied.scalar()
         response.append(shift_dict)
+
+    await cache_set(cache_key, json.dumps([s.model_dump(mode="json") for s in response]), ttl=60)
     return response
 
 
@@ -92,6 +101,7 @@ async def create_shift(
     })
     await db.commit()
     await db.refresh(shift)
+    await cache_delete(f"shifts:{current_user.tenant_id}:published:::")
     return shift
 
 
@@ -139,6 +149,7 @@ async def update_shift(
 
     await db.commit()
     await db.refresh(shift)
+    await cache_delete(f"shifts:{current_user.tenant_id}:published:::")
     return shift
 
 
@@ -161,6 +172,7 @@ async def publish_shift(
     shift.status = "published"
     await log_action(db, current_user.tenant_id, current_user.id, "publish_shift", {"shift_id": shift.id})
     await db.commit()
+    await cache_delete(f"shifts:{current_user.tenant_id}:published:::")
     return {"message": "Shift published"}
 
 
@@ -190,6 +202,7 @@ async def cancel_shift(
     shift.status = "cancelled"
     await log_action(db, current_user.tenant_id, current_user.id, "cancel_shift", {"shift_id": shift.id})
     await db.commit()
+    await cache_delete(f"shifts:{current_user.tenant_id}:published:::")
     return {"message": "Shift cancelled"}
 
 
@@ -210,6 +223,7 @@ async def delete_shift(
     await log_action(db, current_user.tenant_id, current_user.id, "delete_shift", {"shift_id": shift.id})
     await db.delete(shift)
     await db.commit()
+    await cache_delete(f"shifts:{current_user.tenant_id}:published:::")
     return {"message": "Shift deleted"}
 
 

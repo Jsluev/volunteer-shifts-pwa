@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
+import AdminGuard from "@/components/AdminGuard";
 import { apiFetch } from "@/lib/api";
 
 interface FillRate {
@@ -102,6 +103,7 @@ export default function AnalyticsPage() {
   }
 
   return (
+    <AdminGuard>
     <div className="flex">
       <Sidebar />
       <main className="flex-1 p-8">
@@ -247,5 +249,6 @@ export default function AnalyticsPage() {
         )}
       </main>
     </div>
+    </AdminGuard>
   );
 }

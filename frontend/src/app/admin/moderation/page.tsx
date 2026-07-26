@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Sidebar from "@/components/Sidebar";
+import AdminGuard from "@/components/AdminGuard";
 import { apiFetch } from "@/lib/api";
 
 interface Registration {
@@ -126,6 +127,7 @@ export default function ModerationPage() {
   };
 
   return (
+    <AdminGuard>
     <div className="flex">
       <Sidebar />
       <main className="flex-1 p-8">
@@ -266,5 +268,6 @@ export default function ModerationPage() {
         )}
       </main>
     </div>
+    </AdminGuard>
   );
 }
