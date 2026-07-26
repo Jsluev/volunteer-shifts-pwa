@@ -4,7 +4,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
 from app.core.database import get_db
 from app.core.security import get_current_user
-from app.core.redis import cache_get, cache_set, cache_delete
+from app.core.redis import cache_get, cache_set, cache_delete_pattern
 from app.models.user import User
 from app.models.shift import Shift
 from app.models.registration import ShiftRegistration
@@ -113,7 +113,7 @@ async def create_shift(
     })
     await db.commit()
     await db.refresh(shift)
-    await cache_delete(f"shifts:{current_user.tenant_id}:published:::")
+    await cache_delete_pattern(f"shifts:{current_user.tenant_id}:*")
     return shift
 
 
@@ -161,7 +161,7 @@ async def update_shift(
 
     await db.commit()
     await db.refresh(shift)
-    await cache_delete(f"shifts:{current_user.tenant_id}:published:::")
+    await cache_delete_pattern(f"shifts:{current_user.tenant_id}:*")
     return shift
 
 
@@ -184,7 +184,7 @@ async def publish_shift(
     shift.status = "published"
     await log_action(db, current_user.tenant_id, current_user.id, "publish_shift", {"shift_id": shift.id})
     await db.commit()
-    await cache_delete(f"shifts:{current_user.tenant_id}:published:::")
+    await cache_delete_pattern(f"shifts:{current_user.tenant_id}:*")
     return {"message": "Shift published"}
 
 
@@ -214,7 +214,7 @@ async def cancel_shift(
     shift.status = "cancelled"
     await log_action(db, current_user.tenant_id, current_user.id, "cancel_shift", {"shift_id": shift.id})
     await db.commit()
-    await cache_delete(f"shifts:{current_user.tenant_id}:published:::")
+    await cache_delete_pattern(f"shifts:{current_user.tenant_id}:*")
     return {"message": "Shift cancelled"}
 
 
@@ -235,7 +235,7 @@ async def delete_shift(
     await log_action(db, current_user.tenant_id, current_user.id, "delete_shift", {"shift_id": shift.id})
     await db.delete(shift)
     await db.commit()
-    await cache_delete(f"shifts:{current_user.tenant_id}:published:::")
+    await cache_delete_pattern(f"shifts:{current_user.tenant_id}:*")
     return {"message": "Shift deleted"}
 
 

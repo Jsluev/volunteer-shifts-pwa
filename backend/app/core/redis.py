@@ -18,6 +18,14 @@ async def cache_delete(key: str):
     await redis_client.delete(key)
 
 
+async def cache_delete_pattern(pattern: str):
+    keys = []
+    async for key in redis_client.scan_iter(match=pattern):
+        keys.append(key)
+    if keys:
+        await redis_client.delete(*keys)
+
+
 async def rate_limit(key: str, limit: int = 60, window: int = 60) -> bool:
     """Returns True if allowed, False if rate limited."""
     try:
